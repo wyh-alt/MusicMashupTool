@@ -1,0 +1,22 @@
+# 音乐串烧一键工具 - 依赖包
+
+# GUI框架
+PyQt6>=6.4.0
+
+# 数据处理
+pandas>=1.5.0
+openpyxl>=3.0.10
+
+# 音频处理
+librosa>=0.10.0
+soundfile>=0.12.1
+numpy>=1.23.0
+
+# 音频拼接
+pydub>=0.25.1
+
+# 注意：pydub需要ffmpeg，请确保已安装
+# Windows: https://ffmpeg.org/download.html
+# macOS: brew install ffmpeg
+# Linux: sudo apt-get install ffmpeg
+
