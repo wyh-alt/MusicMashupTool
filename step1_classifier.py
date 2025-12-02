@@ -8,6 +8,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 from typing import Callable, Optional, Tuple, List
+import re
+from datetime import datetime, timedelta, time
 
 
 # 调号映射：字母调号到数字的转换
@@ -62,6 +64,111 @@ def number_to_key(num):
     return NUM_TO_KEY.get(num, str(num))
 
 
+def format_time_to_mmssmmm(time_value) -> str:
+    """
+    将各种时间格式统一转换为 MM:SS.mmm 格式 (例如: 01:17.877)
+    
+    Args:
+        time_value: 时间值，可能是字符串、datetime对象、timedelta、浮点数等
+    
+    Returns:
+        格式化后的时间字符串，格式为 MM:SS.mmm
+    """
+    if pd.isna(time_value) or time_value == '' or time_value is None:
+        return ''
+    
+    # 如果已经是正确格式的字符串，直接返回
+    if isinstance(time_value, str):
+        time_str = str(time_value).strip()
+        # 检查是否符合 MM:SS.mmm 格式
+        if re.match(r'^\d{2}:\d{2}\.\d{3}$', time_str):
+            return time_str
+        # 检查是否符合 M:SS.mmm 格式（单数字分钟）
+        if re.match(r'^\d{1,2}:\d{2}\.\d{1,3}$', time_str):
+            parts = time_str.split(':')
+            minutes = parts[0].zfill(2)
+            seconds_part = parts[1]
+            # 确保毫秒部分是3位
+            if '.' in seconds_part:
+                sec, ms = seconds_part.split('.')
+                ms = ms[:3].ljust(3, '0')
+                return f"{minutes}:{sec}.{ms}"
+            else:
+                return f"{minutes}:{seconds_part}.000"
+    
+    # 如果是datetime.time对象
+    if isinstance(time_value, time):
+        total_seconds = time_value.hour * 3600 + time_value.minute * 60 + time_value.second
+        milliseconds = time_value.microsecond // 1000
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    # 如果是datetime对象
+    if isinstance(time_value, datetime):
+        total_seconds = time_value.hour * 3600 + time_value.minute * 60 + time_value.second
+        milliseconds = time_value.microsecond // 1000
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    # 如果是timedelta对象
+    if isinstance(time_value, timedelta):
+        total_seconds = int(time_value.total_seconds())
+        milliseconds = int((time_value.total_seconds() - total_seconds) * 1000)
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    # 如果是浮点数（可能是Excel中的时间格式，如0.052表示天数，或直接的秒数）
+    if isinstance(time_value, (int, float)):
+        try:
+            # Excel时间格式：1 = 1天，0.5 = 12小时
+            # 判断：如果值小于1且大于0，可能是Excel时间格式（天数）
+            # 如果值大于等于1且小于86400，可能是秒数
+            # 如果值大于等于86400，可能是毫秒数
+            if 0 < time_value < 1.0:  # Excel时间格式（天数）
+                total_seconds = time_value * 86400
+            elif 1.0 <= time_value < 86400:  # 直接是秒数
+                total_seconds = float(time_value)
+            elif time_value >= 86400:  # 可能是毫秒数
+                total_seconds = float(time_value) / 1000
+            else:  # 其他情况，假设是秒数
+                total_seconds = abs(float(time_value))
+            
+            minutes = int(total_seconds) // 60
+            seconds = int(total_seconds) % 60
+            milliseconds = int((total_seconds - int(total_seconds)) * 1000)
+            return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+        except:
+            pass
+    
+    # 尝试解析字符串格式
+    time_str = str(time_value).strip()
+    
+    # 尝试解析 MM:SS.mmm 或 M:SS.mmm
+    match = re.match(r'^(\d{1,2}):(\d{2})\.?(\d{0,3})$', time_str)
+    if match:
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        ms_str = match.group(3) if match.group(3) else '0'
+        milliseconds = int(ms_str.ljust(3, '0')[:3])
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    # 尝试解析 SS.mmm 格式（只有秒）
+    match = re.match(r'^(\d+)\.?(\d{0,3})$', time_str)
+    if match:
+        total_seconds = int(match.group(1))
+        ms_str = match.group(2) if match.group(2) else '0'
+        milliseconds = int(ms_str.ljust(3, '0')[:3])
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    # 如果无法解析，返回空字符串
+    return ''
+
+
 def classify_songs_core(
     excel_path: Path,
     output_path: Path,
@@ -82,16 +189,8 @@ def classify_songs_core(
     Returns:
         (groups, df) - 分类组列表和原始数据DataFrame
     """
-    # 读取Excel文件
-    # 先尝试读取以检测实际列名
-    df_temp = pd.read_excel(excel_path, nrows=0)
-    existing_columns = df_temp.columns.tolist()
-    
-    # 时间列需要作为字符串读取以保持原始格式 (如 01:17.877)
-    time_columns = ['副歌开始时间', '副歌结束时间', '段落剪切时间']
-    dtype_dict = {col: str for col in time_columns if col in existing_columns}
-    
-    df = pd.read_excel(excel_path, dtype=dtype_dict)
+    # 读取Excel文件（正常读取，时间格式将在后续格式化函数中处理）
+    df = pd.read_excel(excel_path)
     
     # 检查必需的列
     has_song_name = '歌名' in df.columns or 'name' in df.columns
@@ -318,9 +417,9 @@ def classify_songs_core(
                         value = int(value) if float(value) == int(float(value)) else str(value)
                     except:
                         value = str(value)
-                # 时间列保持为文本格式
-                if col_name in time_col_names and value and not pd.isna(value):
-                    value = str(value)
+                # 时间列格式化为 MM:SS.mmm 格式
+                if col_name in time_col_names:
+                    value = format_time_to_mmssmmm(value)
                 cell = ws.cell(row=current_row, column=col_idx)
                 cell.value = value
                 # 时间列设置为文本格式
@@ -337,9 +436,9 @@ def classify_songs_core(
                         value = int(value) if float(value) == int(float(value)) else str(value)
                     except:
                         value = str(value)
-                # 时间列保持为文本格式
-                if col_name in time_col_names and value and not pd.isna(value):
-                    value = str(value)
+                # 时间列格式化为 MM:SS.mmm 格式
+                if col_name in time_col_names:
+                    value = format_time_to_mmssmmm(value)
                 cell = ws.cell(row=current_row + 1, column=col_idx)
                 cell.value = value
                 # 时间列设置为文本格式
