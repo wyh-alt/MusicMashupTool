@@ -83,7 +83,15 @@ def classify_songs_core(
         (groups, df) - 分类组列表和原始数据DataFrame
     """
     # 读取Excel文件
-    df = pd.read_excel(excel_path)
+    # 先尝试读取以检测实际列名
+    df_temp = pd.read_excel(excel_path, nrows=0)
+    existing_columns = df_temp.columns.tolist()
+    
+    # 时间列需要作为字符串读取以保持原始格式 (如 01:17.877)
+    time_columns = ['副歌开始时间', '副歌结束时间', '段落剪切时间']
+    dtype_dict = {col: str for col in time_columns if col in existing_columns}
+    
+    df = pd.read_excel(excel_path, dtype=dtype_dict)
     
     # 检查必需的列
     has_song_name = '歌名' in df.columns or 'name' in df.columns
@@ -293,6 +301,9 @@ def classify_songs_core(
             '性别': '性别'
         }
         
+        # 时间列名列表，用于格式化处理
+        time_col_names = ['副歌开始时间', '副歌结束时间', '段落剪切时间']
+        
         for match_data in match_songs:
             match_song = match_data['match_song']
             combined_name = match_data['combined_name']
@@ -307,7 +318,14 @@ def classify_songs_core(
                         value = int(value) if float(value) == int(float(value)) else str(value)
                     except:
                         value = str(value)
-                ws.cell(row=current_row, column=col_idx).value = value
+                # 时间列保持为文本格式
+                if col_name in time_col_names and value and not pd.isna(value):
+                    value = str(value)
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.value = value
+                # 时间列设置为文本格式
+                if col_name in time_col_names:
+                    cell.number_format = '@'
             
             # 第二行：匹配歌曲
             for col_idx, col_name in enumerate(original_columns, start=1):
@@ -319,7 +337,14 @@ def classify_songs_core(
                         value = int(value) if float(value) == int(float(value)) else str(value)
                     except:
                         value = str(value)
-                ws.cell(row=current_row + 1, column=col_idx).value = value
+                # 时间列保持为文本格式
+                if col_name in time_col_names and value and not pd.isna(value):
+                    value = str(value)
+                cell = ws.cell(row=current_row + 1, column=col_idx)
+                cell.value = value
+                # 时间列设置为文本格式
+                if col_name in time_col_names:
+                    cell.number_format = '@'
             
             # 合并成品名列
             product_col_letter = get_column_letter(product_col_idx)
