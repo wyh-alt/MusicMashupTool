@@ -376,8 +376,9 @@ def process_pitch_tempo_core(
                 })
                 total_tasks += 1
     
-    # 处理所有任务
+    # 处理所有任务（去重：避免同一首歌被处理多次）
     success_count = 0
+    processed_files = set()  # 记录已处理的文件（sheet_name + audio_file_stem）
     
     for task_idx, task in enumerate(task_list):
         if progress_callback:
@@ -409,8 +410,14 @@ def process_pitch_tempo_core(
                         # 使用24位深度保存，音质更好
                         sf.write(str(output_path), y, sr, format='WAV', subtype='PCM_24')
             
-            # 处理匹配歌曲
+            # 处理匹配歌曲 - 检查是否已处理过
             audio_file = task['audio_file']
+            file_key = f"{sheet_name}||{audio_file.stem}"
+            
+            if file_key in processed_files:
+                logger.info(f"跳过重复处理: {audio_file.stem} (sheet: {sheet_name})")
+                continue
+            
             semitone_shift = task['semitone_shift']
             tempo_rate = task['tempo_rate']
             
@@ -431,6 +438,8 @@ def process_pitch_tempo_core(
             # 使用24位深度保存，音质更好
             sf.write(str(output_path), y_processed, sr, format='WAV', subtype='PCM_24')
             
+            # 标记为已处理
+            processed_files.add(file_key)
             success_count += 1
             
         except Exception as e:

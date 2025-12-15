@@ -309,7 +309,7 @@ def classify_songs_core(
     wb = Workbook()
     wb.remove(wb.active)
     
-    # 统计有效分类组数量（用于进度显示）
+    # 统计有效分类组数量（用于进度显示和序号生成）
     valid_groups = [g for g in groups if len(g) > 1]
     total_valid_groups = len(valid_groups)
     current_group_num = 0
@@ -350,11 +350,12 @@ def classify_songs_core(
         
         ws = wb.create_sheet(title=sheet_name)
         
-        # 生成匹配歌曲列表
+        # 生成匹配歌曲列表（添加序号前缀）
         match_songs = []
         for j in range(1, len(group_indices)):
             match_song = group_songs.iloc[j]
-            combined_name = f"{anchor_song['歌名']}+{match_song['歌名']}"
+            # 添加5位数字序号前缀，格式：00001-歌名1+歌名2
+            combined_name = f"{current_group_num:05d}-{anchor_song['歌名']}+{match_song['歌名']}"
             match_songs.append({
                 'match_song': match_song,
                 'combined_name': combined_name
