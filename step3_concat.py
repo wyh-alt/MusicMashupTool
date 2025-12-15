@@ -12,29 +12,6 @@ from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)
 
-# Windows 下配置 pydub 避免弹出命令行窗口
-if platform.system() == 'Windows':
-    # 保存原始的 Popen
-    _original_popen = subprocess.Popen
-    
-    def _popen_no_window(*args, **kwargs):
-        """Windows 下隐藏子进程窗口的 Popen 包装"""
-        # 设置 STARTUPINFO 隐藏窗口
-        if 'startupinfo' not in kwargs:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            kwargs['startupinfo'] = startupinfo
-        
-        # 设置 CREATE_NO_WINDOW 标志
-        creation_flags = kwargs.get('creationflags', 0)
-        kwargs['creationflags'] = creation_flags | subprocess.CREATE_NO_WINDOW
-        
-        return _original_popen(*args, **kwargs)
-    
-    # 替换全局 Popen（pydub 会使用这个）
-    subprocess.Popen = _popen_no_window
-
 
 def find_audio_file(audio_folder: Path, song_id: str, segment_type: str) -> Optional[Path]:
     """

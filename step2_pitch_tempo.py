@@ -15,30 +15,7 @@ from typing import Callable, Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
-# Windows 下配置避免弹出命令行窗口
-if platform.system() == 'Windows':
-    # 保存原始的 Popen
-    _original_popen = subprocess.Popen
-    
-    def _popen_no_window(*args, **kwargs):
-        """Windows 下隐藏子进程窗口的 Popen 包装"""
-        # 设置 STARTUPINFO 隐藏窗口
-        if 'startupinfo' not in kwargs:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            kwargs['startupinfo'] = startupinfo
-        
-        # 设置 CREATE_NO_WINDOW 标志
-        creation_flags = kwargs.get('creationflags', 0)
-        kwargs['creationflags'] = creation_flags | subprocess.CREATE_NO_WINDOW
-        
-        return _original_popen(*args, **kwargs)
-    
-    # 替换全局 Popen（pyrubberband 等会使用这个）
-    subprocess.Popen = _popen_no_window
-
-# 尝试导入 pyrubberband
+# 尝试导入 pyrubberband（注意：不要在这里修改subprocess，会影响导入）
 try:
     import pyrubberband as prb
     HAS_RUBBERBAND = True
@@ -376,9 +353,10 @@ def process_pitch_tempo_core(
                 })
                 total_tasks += 1
     
-    # 处理所有任务（去重：避免同一首歌被处理多次）
+    # 处理所有任务
     success_count = 0
     processed_files = set()  # 记录已处理的文件（sheet_name + audio_file_stem）
+    copied_anchor_sheets = set()  # 记录已复制锚定歌曲的sheet
     
     for task_idx, task in enumerate(task_list):
         if progress_callback:
@@ -387,28 +365,32 @@ def process_pitch_tempo_core(
                 break
         
         try:
-            # 先复制锚定歌曲（每个sheet只复制一次）
             sheet_name = task['sheet_name']
             safe_sheet_name = sanitize_filename(sheet_name)
             output_folder = output_dir / safe_sheet_name
             output_folder.mkdir(parents=True, exist_ok=True)
             
-            # 复制锚定歌曲的所有片段
-            for anchor_audio_file in task['anchor_audio_files']:
-                anchor_filename = anchor_audio_file.stem
-                safe_anchor_filename = sanitize_filename(anchor_filename)
-                output_path = output_folder / f"{safe_anchor_filename}.wav"
+            # 先复制锚定歌曲（每个sheet只复制一次）
+            if sheet_name not in copied_anchor_sheets:
+                for anchor_audio_file in task['anchor_audio_files']:
+                    anchor_filename = anchor_audio_file.stem
+                    safe_anchor_filename = sanitize_filename(anchor_filename)
+                    output_path = output_folder / f"{safe_anchor_filename}.wav"
+                    
+                    if not output_path.exists():
+                        if anchor_audio_file.suffix.lower() == '.wav':
+                            shutil.copy2(anchor_audio_file, output_path)
+                            logger.info(f"复制锚定歌曲: {output_path.name}")
+                        else:
+                            # 转换为wav（高质量）
+                            y, sr = librosa.load(str(anchor_audio_file), sr=None, mono=False)
+                            if y.ndim == 2:
+                                y = y.T
+                            # 使用24位深度保存，音质更好
+                            sf.write(str(output_path), y, sr, format='WAV', subtype='PCM_24')
+                            logger.info(f"转换并保存锚定歌曲: {output_path.name}")
                 
-                if not output_path.exists():
-                    if anchor_audio_file.suffix.lower() == '.wav':
-                        shutil.copy2(anchor_audio_file, output_path)
-                    else:
-                        # 转换为wav（高质量）
-                        y, sr = librosa.load(str(anchor_audio_file), sr=None, mono=False)
-                        if y.ndim == 2:
-                            y = y.T
-                        # 使用24位深度保存，音质更好
-                        sf.write(str(output_path), y, sr, format='WAV', subtype='PCM_24')
+                copied_anchor_sheets.add(sheet_name)
             
             # 处理匹配歌曲 - 检查是否已处理过
             audio_file = task['audio_file']
@@ -416,10 +398,13 @@ def process_pitch_tempo_core(
             
             if file_key in processed_files:
                 logger.info(f"跳过重复处理: {audio_file.stem} (sheet: {sheet_name})")
+                success_count += 1  # 已处理过，算作成功
                 continue
             
             semitone_shift = task['semitone_shift']
             tempo_rate = task['tempo_rate']
+            
+            logger.info(f"开始处理音频: {audio_file.name}, 变调={semitone_shift}半音, 变速={tempo_rate:.2f}x")
             
             # 加载音频
             y, sr = librosa.load(str(audio_file), sr=None, mono=False)
@@ -437,6 +422,7 @@ def process_pitch_tempo_core(
             
             # 使用24位深度保存，音质更好
             sf.write(str(output_path), y_processed, sr, format='WAV', subtype='PCM_24')
+            logger.info(f"保存处理后音频: {output_path.name}")
             
             # 标记为已处理
             processed_files.add(file_key)
@@ -444,6 +430,8 @@ def process_pitch_tempo_core(
             
         except Exception as e:
             logger.error(f"处理失败 {task['song_name']}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     return success_count, total_tasks
 
