@@ -40,9 +40,22 @@ class DropLineEdit(QLineEdit):
         urls = event.mimeData().urls()
         if urls:
             file_path = urls[0].toLocalFile()
+            # 标准化路径格式（兼容正反斜杠）
+            file_path = str(Path(file_path))
             self.setText(file_path)
             self.file_dropped.emit(file_path)
             event.acceptProposedAction()
+    
+    def text(self) -> str:
+        """获取文本时自动标准化路径"""
+        text = super().text().strip()
+        if text:
+            # 标准化路径格式（兼容正反斜杠）
+            try:
+                text = str(Path(text))
+            except:
+                pass  # 如果转换失败，返回原始文本
+        return text
 
 
 class IntegratedMainWindow(QMainWindow):
@@ -238,18 +251,24 @@ class IntegratedMainWindow(QMainWindow):
             "Excel文件 (*.xlsx *.xls);;所有文件 (*.*)"
         )
         if file_path:
+            # 标准化路径格式
+            file_path = str(Path(file_path))
             self.excel_input.setText(file_path)
     
     def browse_audio(self):
         """浏览音频目录"""
         dir_path = QFileDialog.getExistingDirectory(self, "选择音频文件目录")
         if dir_path:
+            # 标准化路径格式
+            dir_path = str(Path(dir_path))
             self.audio_input.setText(dir_path)
     
     def browse_output(self):
         """浏览输出目录"""
         dir_path = QFileDialog.getExistingDirectory(self, "选择输出目录")
         if dir_path:
+            # 标准化路径格式
+            dir_path = str(Path(dir_path))
             self.output_input.setText(dir_path)
     
     def log(self, message: str, level: str = "INFO"):
@@ -259,10 +278,10 @@ class IntegratedMainWindow(QMainWindow):
     
     def start_processing(self):
         """开始处理"""
-        # 验证输入
-        excel_path = self.excel_input.text().strip()
-        audio_dir = self.audio_input.text().strip()
-        output_dir = self.output_input.text().strip()
+        # 验证输入并标准化路径（兼容正反斜杠）
+        excel_path = self.excel_input.text()
+        audio_dir = self.audio_input.text()
+        output_dir = self.output_input.text()
         
         if not excel_path:
             QMessageBox.warning(self, "警告", "请选择原始歌曲表格文件！")
@@ -276,16 +295,21 @@ class IntegratedMainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请选择输出目录！")
             return
         
-        if not Path(excel_path).exists():
+        # 转换为 Path 对象（自动处理正反斜杠）
+        excel_path = Path(excel_path)
+        audio_dir = Path(audio_dir)
+        output_dir = Path(output_dir)
+        
+        if not excel_path.exists():
             QMessageBox.critical(self, "错误", f"表格文件不存在：{excel_path}")
             return
         
-        if not Path(audio_dir).exists():
+        if not audio_dir.exists():
             QMessageBox.critical(self, "错误", f"音频目录不存在：{audio_dir}")
             return
         
         # 创建输出目录
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         # 禁用开始按钮，启用停止按钮
         self.start_btn.setEnabled(False)
@@ -312,9 +336,9 @@ class IntegratedMainWindow(QMainWindow):
         self.log(f"拼接参数：静音间隙={gap_duration}秒")
         
         self.worker = PipelineWorker(
-            excel_path=Path(excel_path),
-            audio_dir=Path(audio_dir),
-            output_dir=Path(output_dir),
+            excel_path=excel_path,
+            audio_dir=audio_dir,
+            output_dir=output_dir,
             gap_duration=gap_duration,
             key_range=key_range,
             bpm_range=bpm_range
