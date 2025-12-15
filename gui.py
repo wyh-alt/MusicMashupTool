@@ -162,7 +162,7 @@ class IntegratedMainWindow(QMainWindow):
         self.gap_spinbox = QDoubleSpinBox()
         self.gap_spinbox.setRange(0, 5.0)
         self.gap_spinbox.setSingleStep(0.1)
-        self.gap_spinbox.setValue(0.5)
+        self.gap_spinbox.setValue(1.0)
         self.gap_spinbox.setSuffix(" 秒")
         self.gap_spinbox.setFixedWidth(120)
         gap_layout.addWidget(self.gap_spinbox)
