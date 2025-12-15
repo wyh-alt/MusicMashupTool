@@ -86,7 +86,18 @@ class IntegratedMainWindow(QMainWindow):
         input_layout = QVBoxLayout()
         input_group.setLayout(input_layout)
         
-        # 原始表格文件
+        # 分段副歌目录（调整到第一位）
+        audio_layout = QHBoxLayout()
+        audio_layout.addWidget(QLabel("分段副歌目录:"))
+        self.audio_input = DropLineEdit()
+        self.audio_input.setPlaceholderText("拖拽或选择包含分段副歌音频文件的目录...")
+        audio_layout.addWidget(self.audio_input)
+        browse_audio_btn = QPushButton("浏览...")
+        browse_audio_btn.clicked.connect(self.browse_audio)
+        audio_layout.addWidget(browse_audio_btn)
+        input_layout.addLayout(audio_layout)
+        
+        # 原始表格文件（调整到第二位）
         excel_layout = QHBoxLayout()
         excel_layout.addWidget(QLabel("原始歌曲表格:"))
         self.excel_input = DropLineEdit()
@@ -97,22 +108,11 @@ class IntegratedMainWindow(QMainWindow):
         excel_layout.addWidget(browse_excel_btn)
         input_layout.addLayout(excel_layout)
         
-        # 音频文件目录
-        audio_layout = QHBoxLayout()
-        audio_layout.addWidget(QLabel("音频文件目录:"))
-        self.audio_input = DropLineEdit()
-        self.audio_input.setPlaceholderText("拖拽或选择包含音频文件的目录...")
-        audio_layout.addWidget(self.audio_input)
-        browse_audio_btn = QPushButton("浏览...")
-        browse_audio_btn.clicked.connect(self.browse_audio)
-        audio_layout.addWidget(browse_audio_btn)
-        input_layout.addLayout(audio_layout)
-        
-        # 输出目录
+        # 拼接成品目录
         output_layout = QHBoxLayout()
-        output_layout.addWidget(QLabel("输出目录:"))
+        output_layout.addWidget(QLabel("拼接成品目录:"))
         self.output_input = DropLineEdit()
-        self.output_input.setPlaceholderText("选择输出目录...")
+        self.output_input.setPlaceholderText("选择拼接成品的输出目录...")
         output_layout.addWidget(self.output_input)
         browse_output_btn = QPushButton("浏览...")
         browse_output_btn.clicked.connect(self.browse_output)
@@ -256,16 +256,16 @@ class IntegratedMainWindow(QMainWindow):
             self.excel_input.setText(file_path)
     
     def browse_audio(self):
-        """浏览音频目录"""
-        dir_path = QFileDialog.getExistingDirectory(self, "选择音频文件目录")
+        """浏览分段副歌目录"""
+        dir_path = QFileDialog.getExistingDirectory(self, "选择分段副歌目录")
         if dir_path:
             # 标准化路径格式
             dir_path = str(Path(dir_path))
             self.audio_input.setText(dir_path)
     
     def browse_output(self):
-        """浏览输出目录"""
-        dir_path = QFileDialog.getExistingDirectory(self, "选择输出目录")
+        """浏览拼接成品目录"""
+        dir_path = QFileDialog.getExistingDirectory(self, "选择拼接成品目录")
         if dir_path:
             # 标准化路径格式
             dir_path = str(Path(dir_path))
@@ -288,11 +288,11 @@ class IntegratedMainWindow(QMainWindow):
             return
         
         if not audio_dir:
-            QMessageBox.warning(self, "警告", "请选择音频文件目录！")
+            QMessageBox.warning(self, "警告", "请选择分段副歌目录！")
             return
         
         if not output_dir:
-            QMessageBox.warning(self, "警告", "请选择输出目录！")
+            QMessageBox.warning(self, "警告", "请选择拼接成品目录！")
             return
         
         # 转换为 Path 对象（自动处理正反斜杠）
@@ -305,10 +305,10 @@ class IntegratedMainWindow(QMainWindow):
             return
         
         if not audio_dir.exists():
-            QMessageBox.critical(self, "错误", f"音频目录不存在：{audio_dir}")
+            QMessageBox.critical(self, "错误", f"分段副歌目录不存在：{audio_dir}")
             return
         
-        # 创建输出目录
+        # 创建拼接成品目录
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 禁用开始按钮，启用停止按钮
