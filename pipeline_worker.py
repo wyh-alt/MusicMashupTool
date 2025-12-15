@@ -125,10 +125,13 @@ class PipelineWorker(QThread):
                 bpm_range=self.bpm_range
             )
             
-            self.step1_progress.emit(100, 100, f"完成！生成了 {len(groups)} 个分类")
+            # 统计有效分类组数量（至少2首歌的组）
+            valid_groups_count = len([g for g in groups if len(g) > 1])
+            
+            self.step1_progress.emit(100, 100, f"完成！生成了 {valid_groups_count} 个分类")
             self.total_progress.emit(33)
             
-            self.log_message.emit(f"步骤1完成：生成了 {len(groups)} 个分类", "INFO")
+            self.log_message.emit(f"步骤1完成：生成了 {valid_groups_count} 个分类", "INFO")
             self.log_message.emit(f"分类表格已保存至：{self.classified_excel_path}", "INFO")
             
             return True
