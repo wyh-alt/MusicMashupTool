@@ -271,10 +271,6 @@ def classify_songs_core(
     total_songs = len(df)
     
     for anchor_idx in range(total_songs):
-        if progress_callback:
-            if not progress_callback(anchor_idx + 1, total_songs, f"分析第 {anchor_idx + 1}/{total_songs} 首歌曲"):
-                return groups, df
-        
         current_group = [anchor_idx]
         used_as_anchor.add(anchor_idx)
         
@@ -313,11 +309,24 @@ def classify_songs_core(
     wb = Workbook()
     wb.remove(wb.active)
     
+    # 统计有效分类组数量（用于进度显示）
+    valid_groups = [g for g in groups if len(g) > 1]
+    total_valid_groups = len(valid_groups)
+    current_group_num = 0
+    
     sheet_name_counts = {}
     
     for group_num, group_indices in enumerate(groups, start=1):
         if len(group_indices) == 1:
             continue
+        
+        current_group_num += 1
+        
+        # 进度回调：显示当前生成的分类数量
+        if progress_callback:
+            if not progress_callback(current_group_num, total_valid_groups, 
+                                   f"生成分类 {current_group_num}/{total_valid_groups}"):
+                break
         
         group_songs = df.iloc[group_indices].copy()
         anchor_song = group_songs.iloc[0]

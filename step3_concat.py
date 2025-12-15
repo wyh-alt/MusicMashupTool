@@ -11,13 +11,6 @@ from pydub import AudioSegment
 logger = logging.getLogger(__name__)
 
 
-def sanitize_filename(filename: str) -> str:
-    """清理文件名中的非法字符"""
-    import re
-    illegal_chars = r'[<>:"/\\|?*]'
-    return re.sub(illegal_chars, '_', filename)
-
-
 def find_audio_file(audio_folder: Path, song_id: str, segment_type: str) -> Optional[Path]:
     """
     查找音频文件
@@ -173,12 +166,10 @@ def concat_audio_core(
         if len(ids) % 2 != 0:
             logger.warning(f"Sheet '{sheet_name}' ID数量为奇数（{len(ids)}），最后一个ID将被忽略")
         
-        # 音频文件夹路径（使用清理后的Sheet名称，与步骤2保持一致）
-        safe_sheet_name = sanitize_filename(sheet_name)
-        audio_folder = processed_audio_dir / safe_sheet_name
+        # 音频文件夹路径（假设文件夹名称与Sheet名称相同）
+        audio_folder = processed_audio_dir / sheet_name
         if not audio_folder.exists():
             logger.error(f"音频文件夹不存在: {audio_folder}")
-            logger.info(f"原始sheet名称: '{sheet_name}', 清理后: '{safe_sheet_name}'")
             continue
         
         # 创建输出文件夹
