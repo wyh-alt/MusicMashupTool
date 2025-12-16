@@ -305,21 +305,79 @@ def classify_songs_core(
         
         groups.append(current_group)
     
-    # 生成Excel文件
+    # 生成Excel文件 - 所有分类结果放在同一个sheet
     wb = Workbook()
-    wb.remove(wb.active)
+    ws = wb.active
+    ws.title = "分类结果"
     
     # 统计有效分类组数量（用于进度显示）
     valid_groups = [g for g in groups if len(g) > 1]
     total_valid_groups = len(valid_groups)
     
-    # 统计所有成品总数（用于全局序号编号）
-    total_products = sum(len(g) - 1 for g in groups if len(g) > 1)
+    # 定义列
+    original_columns = ['ID', 'Chord Ai', '歌名', '歌手', '副歌开始时间', 
+                      '副歌结束时间', '段落剪切时间', '调号', '速度', '性别']
+    headers = original_columns + ['成品名']
     
+    # 设置样式
+    yellow_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
+    green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+    header_font = Font(bold=True)
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # 写入表头
+    num_original_cols = len(original_columns)
+    for col_idx in range(1, num_original_cols + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.value = headers[col_idx - 1]
+        cell.fill = yellow_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = thin_border
+    
+    product_col_idx = num_original_cols + 1
+    cell = ws.cell(row=1, column=product_col_idx)
+    cell.value = headers[-1]
+    cell.fill = green_fill
+    cell.font = header_font
+    cell.alignment = Alignment(horizontal='center', vertical='center')
+    cell.border = thin_border
+    
+    # 列映射
+    column_mapping = {
+        'ID': 'id',
+        'Chord Ai': 'Chord Ai',
+        '歌名': '歌名',
+        '歌手': '歌手',
+        '副歌开始时间': '副歌开始时间',
+        '副歌结束时间': '副歌结束时间',
+        '段落剪切时间': '段落剪切时间',
+        '调号': '调号_original',
+        '速度': '速度',
+        '性别': '性别'
+    }
+    
+    # 时间列名列表，用于格式化处理
+    time_col_names = ['副歌开始时间', '副歌结束时间', '段落剪切时间']
+    
+    current_row = 2
     current_group_num = 0
-    global_product_num = 0  # 全局成品序号计数器
     
-    sheet_name_counts = {}
+    # 辅助函数：获取ID值
+    def get_id_value(song_data):
+        """从歌曲数据中获取ID值"""
+        value = song_data.get('id', '')
+        if value and not pd.isna(value):
+            try:
+                return int(value) if float(value) == int(float(value)) else str(value)
+            except:
+                return str(value)
+        return ''
     
     for group_num, group_indices in enumerate(groups, start=1):
         if len(group_indices) == 1:
@@ -335,93 +393,15 @@ def classify_songs_core(
         
         group_songs = df.iloc[group_indices].copy()
         anchor_song = group_songs.iloc[0]
+        anchor_id = get_id_value(anchor_song)
         
-        # 生成sheet名称
-        anchor_song_name = str(anchor_song['歌名']).strip()
-        for ch in r'[]:*?/\\':
-            anchor_song_name = anchor_song_name.replace(ch, '-')
-        base_sheet_name = anchor_song_name.strip() or f"Group{group_num}"
-        base_sheet_name = base_sheet_name[:31]
-        
-        # 处理重名
-        sheet_name_count = sheet_name_counts.get(base_sheet_name, 0)
-        if sheet_name_count == 0:
-            sheet_name = base_sheet_name
-        else:
-            suffix = f"_{sheet_name_count}"
-            available_length = 31 - len(suffix)
-            sheet_name = (base_sheet_name[:available_length] + suffix)
-        sheet_name_counts[base_sheet_name] = sheet_name_count + 1
-        
-        ws = wb.create_sheet(title=sheet_name)
-        
-        # 生成匹配歌曲列表（添加全局序号前缀）
-        match_songs = []
+        # 处理每对匹配歌曲
         for j in range(1, len(group_indices)):
             match_song = group_songs.iloc[j]
-            global_product_num += 1  # 递增全局序号
-            # 添加5位数字序号前缀，格式：00001-歌名1+歌名2
-            combined_name = f"{global_product_num:05d}-{anchor_song['歌名']}+{match_song['歌名']}"
-            match_songs.append({
-                'match_song': match_song,
-                'combined_name': combined_name
-            })
-        
-        # 定义列
-        original_columns = ['ID', 'Chord Ai', '歌名', '歌手', '副歌开始时间', 
-                          '副歌结束时间', '段落剪切时间', '调号', '速度', '性别']
-        headers = original_columns + ['成品名']
-        ws.append(headers)
-        
-        # 设置样式
-        yellow_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
-        green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-        header_font = Font(bold=True)
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
-        num_original_cols = len(original_columns)
-        for col_idx in range(1, num_original_cols + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.value = headers[col_idx - 1]
-            cell.fill = yellow_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = thin_border
-        
-        product_col_idx = num_original_cols + 1
-        cell = ws.cell(row=1, column=product_col_idx)
-        cell.value = headers[-1]
-        cell.fill = green_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-        cell.border = thin_border
-        
-        # 写入数据
-        current_row = 2
-        column_mapping = {
-            'ID': 'id',
-            'Chord Ai': 'Chord Ai',
-            '歌名': '歌名',
-            '歌手': '歌手',
-            '副歌开始时间': '副歌开始时间',
-            '副歌结束时间': '副歌结束时间',
-            '段落剪切时间': '段落剪切时间',
-            '调号': '调号_original',
-            '速度': '速度',
-            '性别': '性别'
-        }
-        
-        # 时间列名列表，用于格式化处理
-        time_col_names = ['副歌开始时间', '副歌结束时间', '段落剪切时间']
-        
-        for match_data in match_songs:
-            match_song = match_data['match_song']
-            combined_name = match_data['combined_name']
+            match_id = get_id_value(match_song)
+            
+            # 生成成品名：ID1-ID2-拼接成品
+            combined_name = f"{anchor_id}-{match_id}-拼接成品"
             
             # 第一行：锚定歌曲
             for col_idx, col_name in enumerate(original_columns, start=1):
@@ -477,14 +457,14 @@ def classify_songs_core(
                     cell.border = thin_border
             
             current_row += 2
-        
-        # 调整列宽
-        column_widths = {
-            'A': 12, 'B': 15, 'C': 25, 'D': 20, 'E': 15,
-            'F': 15, 'G': 15, 'H': 10, 'I': 10, 'J': 10, 'K': 40
-        }
-        for col_letter, width in column_widths.items():
-            ws.column_dimensions[col_letter].width = width
+    
+    # 调整列宽
+    column_widths = {
+        'A': 12, 'B': 15, 'C': 25, 'D': 20, 'E': 15,
+        'F': 15, 'G': 15, 'H': 10, 'I': 10, 'J': 10, 'K': 30
+    }
+    for col_letter, width in column_widths.items():
+        ws.column_dimensions[col_letter].width = width
     
     # 保存文件
     wb.save(output_path)
