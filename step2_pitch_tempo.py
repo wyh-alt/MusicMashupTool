@@ -15,17 +15,54 @@ from typing import Callable, Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入 pyrubberband（注意：不要在这里修改subprocess，会影响导入）
+# 尝试导入 pyrubberband 并验证 rubberband-cli 是否可用
+HAS_RUBBERBAND = False
+RUBBERBAND_VERSION = None
+prb = None
+
+def _check_rubberband_cli():
+    """检查 rubberband-cli 是否已安装且可用"""
+    try:
+        # Windows 下需要隐藏窗口
+        startupinfo = None
+        creationflags = 0
+        if platform.system() == 'Windows':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = subprocess.CREATE_NO_WINDOW
+        
+        result = subprocess.run(
+            ['rubberband', '--version'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            startupinfo=startupinfo,
+            creationflags=creationflags
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip() or result.stderr.strip()
+            return True, version
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        logger.debug(f"rubberband-cli 检查失败: {e}")
+    return False, None
+
 try:
     import pyrubberband as prb
-    HAS_RUBBERBAND = True
-    logger.info("✓ 已安装 pyrubberband - 将使用专业级高质量算法")
+    # 仅导入成功不够，还需要验证 rubberband-cli 是否可用
+    cli_available, cli_version = _check_rubberband_cli()
+    if cli_available:
+        HAS_RUBBERBAND = True
+        RUBBERBAND_VERSION = cli_version
+        logger.info(f"✓ pyrubberband 可用，rubberband-cli 版本: {cli_version}")
+    else:
+        logger.warning("⚠️ pyrubberband 已安装，但 rubberband-cli 不可用")
+        logger.warning("⚠️ 将回退到 librosa 处理（音质较差）")
+        logger.warning("⚠️ 请安装 rubberband-cli: conda install -c conda-forge rubberband")
 except ImportError:
-    HAS_RUBBERBAND = False
     logger.warning("⚠️ 未安装 pyrubberband - 将使用 librosa（音质较差）")
     logger.warning("⚠️ 强烈建议安装 pyrubberband 以获得最佳音质！")
     logger.warning("⚠️ 安装方法: pip install pyrubberband")
-    logger.warning("⚠️ 详见《音质优化指南.md》")
 
 
 # 调号映射
@@ -81,13 +118,18 @@ def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: 
     2. pyrubberband 可以同时处理变调和变速，音质更好
     3. librosa 使用最高质量参数作为备选
     """
+    # 记录处理参数（便于调试）
+    logger.debug(f"[变调变速] 参数: semitone_shift={semitone_shift}, tempo_rate={tempo_rate:.4f}, sr={sr}, HAS_RUBBERBAND={HAS_RUBBERBAND}")
+    
     # 如果同时需要变调和变速，使用 pyrubberband 一次性处理（音质最佳）
     if semitone_shift != 0 and tempo_rate != 1.0 and HAS_RUBBERBAND:
         try:
             # pyrubberband 同时处理变调和变速，避免二次处理损失
-            # 使用高质量选项
+            logger.info(f"[pyrubberband] 变调 {semitone_shift:+d} 半音")
             y_processed = prb.pitch_shift(y, sr, semitone_shift)
+            logger.info(f"[pyrubberband] 变速 {tempo_rate:.4f}x")
             y_processed = prb.time_stretch(y_processed, sr, tempo_rate)
+            logger.info("[pyrubberband] 处理完成")
             return y_processed
         except Exception as e:
             logger.warning(f"pyrubberband 同时处理失败，使用分步处理: {e}")
@@ -97,10 +139,13 @@ def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: 
         if HAS_RUBBERBAND:
             try:
                 # pyrubberband 的质量远高于 librosa
+                logger.info(f"[pyrubberband] 变调 {semitone_shift:+d} 半音")
                 y_shifted = prb.pitch_shift(y, sr, semitone_shift)
+                logger.info("[pyrubberband] 变调完成")
             except Exception as e:
                 logger.warning(f"pyrubberband 升降调失败，使用 librosa 高质量模式: {e}")
                 # librosa 使用最高质量参数
+                logger.info(f"[librosa] 变调 {semitone_shift:+d} 半音 (回退模式)")
                 y_shifted = librosa.effects.pitch_shift(
                     y, 
                     sr=sr, 
@@ -110,7 +155,7 @@ def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: 
                 )
         else:
             # librosa 高质量模式
-            logger.info("使用 librosa 高质量模式处理升降调")
+            logger.info(f"[librosa] 变调 {semitone_shift:+d} 半音")
             y_shifted = librosa.effects.pitch_shift(
                 y, 
                 sr=sr, 
@@ -126,16 +171,19 @@ def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: 
         if HAS_RUBBERBAND:
             try:
                 # pyrubberband 变速质量更好
+                logger.info(f"[pyrubberband] 变速 {tempo_rate:.4f}x")
                 y_final = prb.time_stretch(y_shifted, sr, tempo_rate)
+                logger.info("[pyrubberband] 变速完成")
             except Exception as e:
                 logger.warning(f"pyrubberband 变速失败，使用 librosa 高质量模式: {e}")
                 # librosa 使用 phase vocoder，质量较好
+                logger.info(f"[librosa] 变速 {tempo_rate:.4f}x (回退模式)")
                 y_final = librosa.effects.time_stretch(
                     y_shifted, 
                     rate=tempo_rate
                 )
         else:
-            logger.info("使用 librosa 高质量模式处理变速")
+            logger.info(f"[librosa] 变速 {tempo_rate:.4f}x")
             y_final = librosa.effects.time_stretch(
                 y_shifted, 
                 rate=tempo_rate
@@ -241,6 +289,14 @@ def get_id_value(id_raw) -> str:
     return ''
 
 
+def get_audio_engine_info() -> str:
+    """获取当前音频处理引擎信息"""
+    if HAS_RUBBERBAND:
+        return f"pyrubberband + rubberband-cli ({RUBBERBAND_VERSION or 'unknown version'})"
+    else:
+        return "librosa (回退模式，音质较差)"
+
+
 def process_pitch_tempo_core(
     classified_excel_path: Path,
     audio_dir: Path,
@@ -259,6 +315,10 @@ def process_pitch_tempo_core(
     Returns:
         (成功数量, 总数量)
     """
+    # 输出音频处理引擎信息（便于诊断不同设备上的问题）
+    engine_info = get_audio_engine_info()
+    logger.info(f"========== 音频处理引擎: {engine_info} ==========")
+    
     # 读取分类结果（单一sheet）
     df = pd.read_excel(classified_excel_path, sheet_name=0)
     
@@ -331,6 +391,10 @@ def process_pitch_tempo_core(
         if tempo_rate is None:
             logger.warning(f"无法计算速度比率: {match_bpm} -> {anchor_bpm}")
             continue
+        
+        # 详细记录变调变速参数（便于调试）
+        logger.info(f"[参数计算] {match_name}: 调号 {match_key}->{anchor_key} = {semitone_shift:+d}半音, "
+                   f"速度 {match_bpm:.1f}->{anchor_bpm:.1f} = {tempo_rate:.4f}x")
         
         # 查找匹配歌曲的音频文件
         logger.info(f"正在处理配对 {pair_idx + 1}: {anchor_name} + {match_name}")

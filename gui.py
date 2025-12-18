@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon
 
 from pipeline_worker import PipelineWorker
+from step2_pitch_tempo import get_audio_engine_info, HAS_RUBBERBAND
 
 # 配置日志
 logging.basicConfig(
@@ -169,6 +170,19 @@ class IntegratedMainWindow(QMainWindow):
         gap_layout.addWidget(QLabel("（音频拼接时片段之间的静音时长）"))
         gap_layout.addStretch()
         param_layout.addLayout(gap_layout)
+        
+        # 音频处理引擎信息
+        engine_layout = QHBoxLayout()
+        engine_layout.addWidget(QLabel("[变调变速] 处理引擎:"))
+        engine_info = get_audio_engine_info()
+        self.engine_label = QLabel(engine_info)
+        if HAS_RUBBERBAND:
+            self.engine_label.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.engine_label.setStyleSheet("color: orange; font-weight: bold;")
+        engine_layout.addWidget(self.engine_label)
+        engine_layout.addStretch()
+        param_layout.addLayout(engine_layout)
         
         main_layout.addWidget(param_group)
         
@@ -334,6 +348,7 @@ class IntegratedMainWindow(QMainWindow):
         
         self.log(f"分类参数：调号区间=±{key_range}个半音，速度区间=±{bpm_range} BPM")
         self.log(f"拼接参数：静音间隙={gap_duration}秒")
+        self.log(f"音频引擎：{get_audio_engine_info()}")
         
         self.worker = PipelineWorker(
             excel_path=excel_path,
