@@ -15,10 +15,13 @@ from typing import Callable, Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入 pyrubberband 并验证 rubberband-cli 是否可用
-HAS_RUBBERBAND = False
+# 强制要求 pyrubberband + rubberband-cli
 RUBBERBAND_VERSION = None
 prb = None
+
+class RubberbandNotAvailableError(Exception):
+    """rubberband 不可用时的异常"""
+    pass
 
 def _check_rubberband_cli():
     """检查 rubberband-cli 是否已安装且可用"""
@@ -44,25 +47,63 @@ def _check_rubberband_cli():
             version = result.stdout.strip() or result.stderr.strip()
             return True, version
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        logger.debug(f"rubberband-cli 检查失败: {e}")
+        logger.error(f"rubberband-cli 检查失败: {e}")
     return False, None
 
+# 延迟初始化 pyrubberband + rubberband-cli（在首次使用时检查）
+def _ensure_rubberband_available():
+    """确保 pyrubberband + rubberband-cli 可用，如果不可用则抛出异常"""
+    global prb, RUBBERBAND_VERSION
+    
+    if prb is not None:
+        return  # 已经初始化成功
+    
+    try:
+        import pyrubberband
+        # 验证 rubberband-cli 是否可用
+        cli_available, cli_version = _check_rubberband_cli()
+        if not cli_available:
+            error_msg = (
+                "错误：rubberband-cli 未安装或不可用！\n\n"
+                "本程序强制要求使用 pyrubberband + rubberband-cli 进行高质量音频处理。\n\n"
+                "安装方法：\n"
+                "  conda install -c conda-forge rubberband\n\n"
+                "或者：\n"
+                "  pip install pyrubberband\n"
+                "  然后单独安装 rubberband-cli（需要从源码编译或使用包管理器）"
+            )
+            logger.error(error_msg)
+            raise RubberbandNotAvailableError(error_msg)
+        # 设置全局变量
+        prb = pyrubberband
+        RUBBERBAND_VERSION = cli_version
+        logger.info(f"✓ pyrubberband 可用，rubberband-cli 版本: {cli_version}")
+    except ImportError:
+        error_msg = (
+            "错误：pyrubberband 未安装！\n\n"
+            "本程序强制要求使用 pyrubberband + rubberband-cli 进行高质量音频处理。\n\n"
+            "安装方法：\n"
+            "  pip install pyrubberband\n"
+            "  conda install -c conda-forge rubberband"
+        )
+        logger.error(error_msg)
+        raise RubberbandNotAvailableError(error_msg)
+
+# 尝试导入（不强制检查，允许延迟初始化）
 try:
     import pyrubberband as prb
-    # 仅导入成功不够，还需要验证 rubberband-cli 是否可用
+    # 立即检查是否可用
     cli_available, cli_version = _check_rubberband_cli()
     if cli_available:
-        HAS_RUBBERBAND = True
         RUBBERBAND_VERSION = cli_version
         logger.info(f"✓ pyrubberband 可用，rubberband-cli 版本: {cli_version}")
     else:
-        logger.warning("⚠️ pyrubberband 已安装，但 rubberband-cli 不可用")
-        logger.warning("⚠️ 将回退到 librosa 处理（音质较差）")
-        logger.warning("⚠️ 请安装 rubberband-cli: conda install -c conda-forge rubberband")
+        # 延迟到使用时再报错
+        prb = None
+        logger.warning("⚠️ rubberband-cli 不可用，将在使用时检查")
 except ImportError:
-    logger.warning("⚠️ 未安装 pyrubberband - 将使用 librosa（音质较差）")
-    logger.warning("⚠️ 强烈建议安装 pyrubberband 以获得最佳音质！")
-    logger.warning("⚠️ 安装方法: pip install pyrubberband")
+    prb = None
+    logger.warning("⚠️ pyrubberband 未安装，将在使用时检查")
 
 
 # 调号映射
@@ -111,18 +152,18 @@ def calculate_semitone_shift(source_key: str, target_key: str) -> Optional[int]:
 
 def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: float) -> np.ndarray:
     """
-    处理单声道音频（高质量模式）
+    处理单声道音频（强制使用 pyrubberband + rubberband-cli）
     
-    音质优化策略：
-    1. 优先使用 pyrubberband（业界最高质量）
-    2. pyrubberband 可以同时处理变调和变速，音质更好
-    3. librosa 使用最高质量参数作为备选
+    注意：本函数强制要求 pyrubberband + rubberband-cli，不支持回退到其他库
     """
+    # 确保 rubberband 可用
+    _ensure_rubberband_available()
+    
     # 记录处理参数（便于调试）
-    logger.debug(f"[变调变速] 参数: semitone_shift={semitone_shift}, tempo_rate={tempo_rate:.4f}, sr={sr}, HAS_RUBBERBAND={HAS_RUBBERBAND}")
+    logger.debug(f"[变调变速] 参数: semitone_shift={semitone_shift}, tempo_rate={tempo_rate:.4f}, sr={sr}")
     
     # 如果同时需要变调和变速，使用 pyrubberband 一次性处理（音质最佳）
-    if semitone_shift != 0 and tempo_rate != 1.0 and HAS_RUBBERBAND:
+    if semitone_shift != 0 and tempo_rate != 1.0:
         try:
             # pyrubberband 同时处理变调和变速，避免二次处理损失
             logger.info(f"[pyrubberband] 变调 {semitone_shift:+d} 半音")
@@ -132,62 +173,30 @@ def process_mono_audio(y: np.ndarray, sr: int, semitone_shift: int, tempo_rate: 
             logger.info("[pyrubberband] 处理完成")
             return y_processed
         except Exception as e:
-            logger.warning(f"pyrubberband 同时处理失败，使用分步处理: {e}")
+            logger.error(f"pyrubberband 同时处理失败: {e}")
+            raise
     
     # 分步处理：先做升降调
     if semitone_shift != 0:
-        if HAS_RUBBERBAND:
-            try:
-                # pyrubberband 的质量远高于 librosa
-                logger.info(f"[pyrubberband] 变调 {semitone_shift:+d} 半音")
-                y_shifted = prb.pitch_shift(y, sr, semitone_shift)
-                logger.info("[pyrubberband] 变调完成")
-            except Exception as e:
-                logger.warning(f"pyrubberband 升降调失败，使用 librosa 高质量模式: {e}")
-                # librosa 使用最高质量参数
-                logger.info(f"[librosa] 变调 {semitone_shift:+d} 半音 (回退模式)")
-                y_shifted = librosa.effects.pitch_shift(
-                    y, 
-                    sr=sr, 
-                    n_steps=semitone_shift,
-                    bins_per_octave=24,      # 提高音高分辨率（默认12）
-                    res_type='soxr_vhq'      # 使用最高质量重采样器
-                )
-        else:
-            # librosa 高质量模式
-            logger.info(f"[librosa] 变调 {semitone_shift:+d} 半音")
-            y_shifted = librosa.effects.pitch_shift(
-                y, 
-                sr=sr, 
-                n_steps=semitone_shift,
-                bins_per_octave=24,
-                res_type='soxr_vhq'
-            )
+        try:
+            logger.info(f"[pyrubberband] 变调 {semitone_shift:+d} 半音")
+            y_shifted = prb.pitch_shift(y, sr, semitone_shift)
+            logger.info("[pyrubberband] 变调完成")
+        except Exception as e:
+            logger.error(f"pyrubberband 升降调失败: {e}")
+            raise
     else:
         y_shifted = y
     
     # 再做变速
     if tempo_rate != 1.0:
-        if HAS_RUBBERBAND:
-            try:
-                # pyrubberband 变速质量更好
-                logger.info(f"[pyrubberband] 变速 {tempo_rate:.4f}x")
-                y_final = prb.time_stretch(y_shifted, sr, tempo_rate)
-                logger.info("[pyrubberband] 变速完成")
-            except Exception as e:
-                logger.warning(f"pyrubberband 变速失败，使用 librosa 高质量模式: {e}")
-                # librosa 使用 phase vocoder，质量较好
-                logger.info(f"[librosa] 变速 {tempo_rate:.4f}x (回退模式)")
-                y_final = librosa.effects.time_stretch(
-                    y_shifted, 
-                    rate=tempo_rate
-                )
-        else:
-            logger.info(f"[librosa] 变速 {tempo_rate:.4f}x")
-            y_final = librosa.effects.time_stretch(
-                y_shifted, 
-                rate=tempo_rate
-            )
+        try:
+            logger.info(f"[pyrubberband] 变速 {tempo_rate:.4f}x")
+            y_final = prb.time_stretch(y_shifted, sr, tempo_rate)
+            logger.info("[pyrubberband] 变速完成")
+        except Exception as e:
+            logger.error(f"pyrubberband 变速失败: {e}")
+            raise
     else:
         y_final = y_shifted
     
@@ -291,10 +300,11 @@ def get_id_value(id_raw) -> str:
 
 def get_audio_engine_info() -> str:
     """获取当前音频处理引擎信息"""
-    if HAS_RUBBERBAND:
+    try:
+        _ensure_rubberband_available()
         return f"pyrubberband + rubberband-cli ({RUBBERBAND_VERSION or 'unknown version'})"
-    else:
-        return "librosa (回退模式，音质较差)"
+    except RubberbandNotAvailableError:
+        return "错误：pyrubberband 不可用"
 
 
 def process_pitch_tempo_core(

@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon
 
 from pipeline_worker import PipelineWorker
-from step2_pitch_tempo import get_audio_engine_info, HAS_RUBBERBAND
+from step2_pitch_tempo import get_audio_engine_info, RubberbandNotAvailableError
 
 # 配置日志
 logging.basicConfig(
@@ -174,12 +174,16 @@ class IntegratedMainWindow(QMainWindow):
         # 音频处理引擎信息
         engine_layout = QHBoxLayout()
         engine_layout.addWidget(QLabel("[变调变速] 处理引擎:"))
-        engine_info = get_audio_engine_info()
-        self.engine_label = QLabel(engine_info)
-        if HAS_RUBBERBAND:
-            self.engine_label.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            self.engine_label.setStyleSheet("color: orange; font-weight: bold;")
+        try:
+            engine_info = get_audio_engine_info()
+            self.engine_label = QLabel(engine_info)
+            if "未初始化" in engine_info:
+                self.engine_label.setStyleSheet("color: red; font-weight: bold;")
+            else:
+                self.engine_label.setStyleSheet("color: green; font-weight: bold;")
+        except RubberbandNotAvailableError as e:
+            self.engine_label = QLabel("错误：pyrubberband 不可用")
+            self.engine_label.setStyleSheet("color: red; font-weight: bold;")
         engine_layout.addWidget(self.engine_label)
         engine_layout.addStretch()
         param_layout.addLayout(engine_layout)
@@ -348,7 +352,24 @@ class IntegratedMainWindow(QMainWindow):
         
         self.log(f"分类参数：调号区间=±{key_range}个半音，速度区间=±{bpm_range} BPM")
         self.log(f"拼接参数：静音间隙={gap_duration}秒")
-        self.log(f"音频引擎：{get_audio_engine_info()}")
+        
+        # 检查音频处理引擎是否可用
+        try:
+            engine_info = get_audio_engine_info()
+            self.log(f"音频引擎：{engine_info}")
+        except RubberbandNotAvailableError as e:
+            error_msg = (
+                "错误：pyrubberband + rubberband-cli 不可用！\n\n"
+                "本程序强制要求使用 pyrubberband + rubberband-cli 进行高质量音频处理。\n\n"
+                "请先安装：\n"
+                "  pip install pyrubberband\n"
+                "  conda install -c conda-forge rubberband\n\n"
+                "安装完成后请重启程序。"
+            )
+            QMessageBox.critical(self, "依赖缺失", error_msg)
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            return
         
         self.worker = PipelineWorker(
             excel_path=excel_path,
